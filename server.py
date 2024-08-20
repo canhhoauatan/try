@@ -320,7 +320,7 @@ def get_bubble_contours(image):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return send_from_directory('', 'index.html')
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
