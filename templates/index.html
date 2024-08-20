@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>DoubleZero💯</title>
+        <link rel="icon" href="../favicon.ico" type="image/x-icon" />
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            html {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                background-attachment: fixed;
+                background-color: white;
+            }
+
+            #dropZone,
+            #dropZone2 {
+                width: calc(100% / 2);
+                height: 100%;
+            }
+
+            @media (max-width: 1200px) {
+                .drop-zone {
+                    width: calc(100% - 40px);
+                }
+
+                .image-block {
+                    flex: 1 1 calc(50% - 80px);
+                }
+            }
+
+            @media (max-width: 768px) {
+                .drop-zone {
+                    width: calc(100% - 40px);
+                }
+
+                .image-block {
+                    flex: 1 1 calc(100% - 20px);
+                }
+            }
+
+            .info-content {
+                background-color: #fff;
+                padding: 20px;
+                border-radius: 15px;
+                text-align: center;
+                width: 80%;
+                max-width: 600px;
+            }
+
+            .chart-container {
+                width: 100%;
+                height: 300px;
+            }
+
+            .zoomed-image {
+                transform: translate(-50%, -50%) scale(1);
+                width: auto;
+                height: 50vh;
+                border: 5px solid #fff;
+                box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+                z-index: 1001;
+            }
+
+            .zoomed-image.zoomed {
+                transform: translate(-50%, -50%) scale(2);
+            }
+
+            .zoom-overlay.visible,
+            .zoomed-image.visible {
+                display: block;
+            }
+        </style>
+    </head>
+    <body>
+        <div
+            id="zoomOverlay"
+            class="zoom-overlay fixed inset-0 bg-black bg-opacity-70 z-50 hidden"
+        ></div>
+        <img
+            id="zoomedImage"
+            class="zoomed-image fixed top-1/2 left-1/2 hidden"
+        />
+
+        <div
+            class="flex fixed top-0 left-0 h-36 right-0 bg-white bg-opacity-0 z-40 items-center"
+        >
+            <div
+                id="dropZone"
+                class="flex-1 text-center cursor-pointer rounded-lg hover:bg-rose-50 transition duration-300 ease-in-out bg-opacity-0 flex items-center justify-center"
+            >
+                <p class="text-lg font-semibold text-orange-400">
+                    Select or drag answer here
+                </p>
+            </div>
+            <div
+                id="dropZone2"
+                class="flex-1 text-center cursor-pointer rounded-lg hover:bg-rose-50 transition duration-300 ease-in-out bg-opacity-0 flex items-center justify-center"
+            >
+                <p class="text-lg font-semibold text-rose-200">
+                    Select or drag images here
+                </p>
+            </div>
+        </div>
+
+        <div id="result" class="flex flex-wrap mt-40">
+            <!-- Image blocks here -->
+        </div>
+
+        <button
+            id="infoButton"
+            class="fixed bottom-10 right-5 w-12 h-12 bg-rose-200 hover:bg-gray-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform transform hover:scale-110 duration-200 ease-in-out z-30"
+        >
+            <img class="w-5 h-5" src="images/i.png" />
+        </button>
+
+        <!-- Đã được thay đổi -->
+        <div
+            id="infoModal"
+            class="fixed top-0 left-0 w-full h-full bg-black bg-opacity-40 flex items-center justify-center z-50 hidden"
+        >
+            <div class="info-content p-6 rounded-lg shadow-lg">
+                <p id="infoDetails"></p>
+                <div class="chart-container w-full h-[300px]">
+                    <canvas id="scoreChart"></canvas>
+                </div>
+                <div class="chart-container w-full h-[300px] mt-2">
+                    <canvas id="histogramChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+        <script>
+            function handlePaste(event) {
+                const clipboardItems = event.clipboardData.items;
+                for (let i = 0; i < clipboardItems.length; i++) {
+                    const item = clipboardItems[i];
+                    if (item.type.startsWith("image/")) {
+                        const file = item.getAsFile();
+                        processFile(file, false); // false vì không phải là answer
+                    }
+                }
+            }
+            // Add paste event listener
+            document.addEventListener("paste", handlePaste);
+            const zoomedImage = document.getElementById("zoomedImage");
+            const zoomOverlay = document.getElementById("zoomOverlay");
+
+            function toggleImageSize(image) {
+                if (zoomedImage.classList.contains("visible")) {
+                    // Hide zoomed image
+                    zoomedImage.classList.remove("visible");
+                    zoomOverlay.classList.remove("visible");
+                    zoomedImage.classList.remove("zoomed");
+                } else {
+                    // Show zoomed image
+                    zoomedImage.src = image.src;
+                    zoomedImage.classList.add("visible");
+                    zoomOverlay.classList.add("visible");
+                    zoomedImage.classList.add("zoomed");
+                }
+            }
+
+            // Add click event to images
+            document.querySelectorAll(".image-block img").forEach((img) => {
+                img.addEventListener("click", () => {
+                    toggleImageSize(img);
+                });
+            });
+
+            // Hide zoomed image when clicking on overlay or pressing 'Esc'
+            zoomedImage.addEventListener("click", () => {
+                toggleImageSize();
+            });
+            zoomOverlay.addEventListener("click", () => {
+                toggleImageSize();
+            });
+
+            const dropZone = document.getElementById("dropZone");
+            const dropZone2 = document.getElementById("dropZone2");
+            const resultContainer = document.getElementById("result");
+
+            let answerData = null;
+            let scores = [];
+            let totalSubmissions = 0;
+
+            document
+                .getElementById("infoButton")
+                .addEventListener("click", () => {
+                    document.getElementById("infoModal").style.display = "flex";
+                    updateInfoModal();
+                });
+
+            document
+                .getElementById("infoModal")
+                .addEventListener("click", (event) => {
+                    if (event.target === document.getElementById("infoModal")) {
+                        document.getElementById("infoModal").style.display =
+                            "none";
+                    }
+                });
+
+            dropZone.addEventListener("drop", (event) => {
+                event.preventDefault();
+                dropZone.classList.remove("dragover");
+                const files = event.dataTransfer.files;
+                handleFiles(files, true);
+                hideDropZone();
+            });
+
+            dropZone2.addEventListener("dragover", (event) => {
+                event.preventDefault();
+                dropZone2.classList.add("dragover");
+            });
+
+            dropZone2.addEventListener("dragleave", () => {
+                dropZone2.classList.remove("dragover");
+            });
+
+            dropZone2.addEventListener("drop", (event) => {
+                event.preventDefault();
+                dropZone2.classList.remove("dragover");
+                const files = event.dataTransfer.files;
+                handleFiles(files, false);
+            });
+
+            dropZone.addEventListener("click", () => {
+                openFileDialog(true);
+            });
+
+            dropZone2.addEventListener("click", () => {
+                openFileDialog(false);
+            });
+
+            let scoreChart = null;
+            let histogramChart = null; // Khai báo toàn cục
+
+            function handleFiles(files, isAnswer) {
+                for (let i = 0; i < files.length; i++) {
+                    processFile(files[i], isAnswer);
+                }
+            }
+
+            function processFile(file, isAnswer) {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                fetch("/upload", {
+                    method: "POST",
+                    body: formData,
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (data.error) {
+                            alert(data.error);
+                        } else {
+                            if (isAnswer) {
+                                answerData = data;
+                            } else {
+                                addImageBlock(data);
+                                if (answerData) {
+                                    gradeSubmission(data);
+                                }
+                            }
+                        }
+                    })
+                    .catch((error) => console.error("Error:", error));
+            }
+
+            function openFileDialog(isAnswer) {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.multiple = true;
+
+                input.addEventListener("change", (event) => {
+                    const files = event.target.files;
+                    handleFiles(files, isAnswer);
+                    if (isAnswer) {
+                        hideDropZone();
+                    }
+                });
+
+                input.click();
+            }
+            let currentId = 0; // Biến toàn cục để theo dõi ID hiện tại
+
+            function generateUniqueId() {
+                return ++currentId; // Tăng giá trị currentId và trả về giá trị mới
+            }
+
+            function addImageBlock(data) {
+                // Kiểm tra nếu data.id không tồn tại và tạo ID mới
+                if (typeof data.id === "undefined") {
+                    data.id = generateUniqueId();
+                }
+
+                const imageBlock = document.createElement("div");
+                imageBlock.classList.add(
+                    "image-block", // Add this line
+                    "ml-2",
+                    "z-10",
+                    "rounded-[25px]",
+                    "p-3",
+                    "text-center",
+                    "w-[calc(25%-12px)]",
+                    "mb-2",
+                    "bg-[#f4f5fb]",
+                    "relative",
+                    "hover:bg-rose-100",
+                    "transition",
+                    "duration-300",
+                    "ease-in-out"
+                );
+
+                imageBlock.setAttribute("data-id", data.id); // Add data-id attribute
+
+                const image = document.createElement("img");
+                const randomParam = new Date().getTime(); // Add random parameter to avoid cache issues
+                image.src =
+                    "/processed/" +
+                    data.processed_image_path.split("/").pop() +
+                    "?t=" +
+                    randomParam;
+
+                image.addEventListener("click", () => {
+                    toggleImageSize(image);
+                });
+
+                const part1 = document.createElement("p");
+                part1.textContent = data.Part_1;
+
+                const part2 = document.createElement("p");
+                part2.textContent = data.Part_2;
+
+                const part3 = document.createElement("p");
+                part3.textContent = data.Part_3;
+
+                const deleteBtn = document.createElement("button");
+                deleteBtn.classList.add(
+                    "absolute",
+                    "top-5",
+                    "right-6",
+                    "p-2",
+                    "rounded-xl",
+                    "hover:opacity-100",
+                    "opacity-40"
+                );
+                deleteBtn.innerHTML = "<p>❌</p>";
+
+                deleteBtn.addEventListener("click", () => {
+                    deleteResult(data.id); // Delete by ID
+                });
+
+                function downloadImage(data, filename) {
+                    const a = document.createElement("a");
+                    a.href = data;
+                    a.download = filename;
+                    a.click();
+                }
+
+                imageBlock.appendChild(image);
+                image.classList.add(
+                    "rounded-2xl",
+                    "w-full",
+                    "h-auto",
+                    "cursor-pointer"
+                ); // Thêm các lớp Tailwind cho ảnh
+                imageBlock.appendChild(part1);
+                part1.classList.add("text-xs");
+                imageBlock.appendChild(part2);
+                part2.classList.add("text-xs");
+                imageBlock.appendChild(part3);
+                part3.classList.add("text-xs");
+
+                imageBlock.appendChild(deleteBtn);
+
+                const resultDetails = document.createElement("div");
+                resultDetails.classList.add("result-details");
+                imageBlock.appendChild(resultDetails);
+                resultContainer.appendChild(imageBlock);
+            }
+
+            function deleteResult(id) {
+                // Remove the score from the array
+                scores = scores.filter((score) => score.id !== id);
+
+                // Remove the corresponding image block from the DOM
+                const imageBlock = resultContainer.querySelector(
+                    `.image-block[data-id="${id}"]`
+                );
+                if (imageBlock) {
+                    imageBlock.remove();
+                }
+
+                // Update the info modal
+                updateInfoModal();
+            }
+
+            function hideDropZone() {
+                dropZone.classList.add("hidden");
+            }
+
+            function gradeSubmission(submissionData) {
+                let totalScore = 0;
+                let part1Score = 0;
+                let part2Score = 0;
+                let part3Score = 0;
+
+                const part1Answer = answerData.Part_1;
+                const part1Submission = submissionData.Part_1;
+                let part1Wrong = [];
+                for (let i = 0; i < 12; i++) {
+                    if (part1Answer[i] === part1Submission[i]) {
+                        part1Score += 0.25;
+                    } else {
+                        part1Wrong.push({
+                            index: i + 1,
+                            answer: part1Answer[i],
+                            submission: part1Submission[i],
+                        });
+                    }
+                }
+
+                const part2Answer = answerData.Part_2.split("");
+                const part2Submission = submissionData.Part_2.split("");
+                let part2Wrong = [];
+                for (let i = 0; i < 4; i++) {
+                    let correctCount = 0;
+                    let wrongIndices = [];
+                    for (let j = 0; j < 4; j++) {
+                        const answerIndex = i * 4 + j;
+                        if (
+                            part2Answer[answerIndex] ===
+                            part2Submission[answerIndex]
+                        ) {
+                            correctCount++;
+                        } else {
+                            const questionNumber = i + 1;
+                            const optionLetter = String.fromCharCode(97 + j); // 'a' is 97 in ASCII
+                            wrongIndices.push({
+                                index: `${questionNumber}${optionLetter}`,
+                                answer: part2Answer[answerIndex],
+                                submission: part2Submission[answerIndex],
+                            });
+                        }
+                    }
+                    switch (correctCount) {
+                        case 1:
+                            part2Score += 0.1;
+                            part2Wrong.push(...wrongIndices);
+                            break;
+                        case 2:
+                            part2Score += 0.25;
+                            part2Wrong.push(...wrongIndices);
+                            break;
+                        case 3:
+                            part2Score += 0.5;
+                            part2Wrong.push(...wrongIndices);
+                            break;
+                        case 4:
+                            part2Score += 1;
+                            break;
+                    }
+                }
+
+                const part3Answer = answerData.Part_3.match(/.{1,4}/g);
+                const part3Submission = submissionData.Part_3.match(/.{1,4}/g);
+                let part3Wrong = [];
+                for (let i = 0; i < part3Answer.length; i++) {
+                    if (part3Answer[i] === part3Submission[i]) {
+                        part3Score += 0.5;
+                    } else {
+                        part3Wrong.push({
+                            index: i + 1,
+                            answer: part3Answer[i],
+                            submission: part3Submission[i],
+                        });
+                    }
+                }
+
+                totalScore = part1Score + part2Score + part3Score;
+                const resultContent = `
+                    <div class="bg-white border border-gray-200 p-2 rounded-2xl shadow-sm mb-2 mt-3">
+                        <p class="text-lg font-semibold text-rose-500 mb-1 ">
+                            TOTAL SCORE: ${totalScore.toFixed(2)} / 10.00
+                        </p>
+                        <p class="text-base font-medium text-gray-700">
+                            <strong><u>Part 1</u>:</strong> ${part1Score.toFixed(
+                                2
+                            )} / 3.00
+                        </p>
+                        <p class="mb-1 text-xs">${formatWrongAnswers(
+                            part1Wrong
+                        )}</p>
+                        <p class="text-base font-medium text-gray-700">
+                            <strong><u>Part 2</u>:</strong> ${part2Score.toFixed(
+                                2
+                            )} / 4.00
+                        </p>
+                        <p class="mb-1 text-xs">${formatWrongAnswers(
+                            part2Wrong
+                        )}</p>
+                        <p class="text-base font-medium text-gray-700">
+                            <strong><u>Part 3</u>:</strong> ${part3Score.toFixed(
+                                2
+                            )} / 3.00
+                        </p>
+                        <p class="text-xs">${formatWrongAnswers(part3Wrong)}</p>
+                    </div>`;
+
+                const lastImageBlock = resultContainer.lastChild;
+                const lastResultDetails =
+                    lastImageBlock.querySelector(".result-details");
+                lastResultDetails.innerHTML = resultContent;
+                scores.push(totalScore);
+                totalSubmissions++;
+
+                updateInfoModal();
+            }
+
+            function formatWrongAnswers(wrongList) {
+                return (
+                    wrongList
+                        .map(
+                            (item) => `${item.index}(
+                                <span style="color: rgb(124,252,0);">${item.answer}</span> 
+                                <span style="color: red;">${item.submission}</span>)`
+                        )
+                        .join(", ") || "None"
+                );
+            }
+            // Thêm vào đầu script JavaScript của bạn
+            function calculateStatistics(scores) {
+                if (scores.length === 0) return {};
+
+                const maxScore = Math.max(...scores).toFixed(2);
+                const minScore = Math.min(...scores).toFixed(2);
+                const avgScore = (
+                    scores.reduce((a, b) => a + b, 0) / scores.length
+                ).toFixed(2);
+                const stdDev = Math.sqrt(
+                    scores
+                        .map((x) => Math.pow(x - avgScore, 2))
+                        .reduce((a, b) => a + b) / scores.length
+                ).toFixed(2);
+
+                const sortedScores = [...scores]
+                    .sort((a, b) => b - a)
+                    .map((score) => score.toFixed(2));
+
+                return { maxScore, minScore, avgScore, stdDev, sortedScores };
+            }
+
+            function updateInfoModal() {
+                try {
+                    const {
+                        maxScore,
+                        minScore,
+                        avgScore,
+                        stdDev,
+                        sortedScores,
+                    } = calculateStatistics(scores);
+
+                    const infoDetails = `
+                        <div class="bg-white border border-gray-200 p-3 rounded-lg shadow-lg mb-4">
+                            <p class=" mb-2">
+                                <strong class="text-blue-600">Highest Score:</strong> ${maxScore} / 10.00
+                            </p>
+                            <p class=" mb-2">
+                                <strong class="text-blue-600">Lowest Score:</strong> ${minScore} / 10.00
+                            </p>
+                            <p class="  mb-2">
+                                <strong class="text-blue-600">Average Score:</strong> ${avgScore} / 10.00
+                            </p>
+                            <p class=" mb-2">
+                                <strong class="text-blue-600">Standard Deviation:</strong> ${stdDev}
+                            </p>
+                            <p class=" mb-2">
+                                <strong class="text-blue-600">Total Submissions:</strong> ${
+                                    scores.length
+                                }
+                            </p>
+                            <p class="  mb-2">
+                                <strong class="text-blue-600">Scores (Descending):</strong> ${sortedScores.join(
+                                    " | "
+                                )}
+                            </p>
+                            <p class=" mb-2">
+                                <strong class="text-blue-600">Most Incorrect Questions:</strong> Coming soon...
+                            </p>
+                        </div>`;
+
+                    document.getElementById("infoDetails").innerHTML =
+                        infoDetails;
+
+                    updateCharts(scores);
+                } catch (error) {
+                    console.error("Error updating info modal:", error);
+                }
+            }
+
+            function updateCharts(scores) {
+                const ctxBar = document
+                    .getElementById("scoreChart")
+                    .getContext("2d");
+                const ctxHist = document
+                    .getElementById("histogramChart")
+                    .getContext("2d");
+
+                if (scoreChart) {
+                    scoreChart.data.labels = scores.map(
+                        (_, index) => ` ${index + 1}`
+                    );
+                    scoreChart.data.datasets[0].data = scores;
+                    scoreChart.update();
+                } else {
+                    scoreChart = new Chart(ctxBar, {
+                        type: "bar",
+                        data: {
+                            labels: scores.map(
+                                (_, index) => `Submission ${index + 1}`
+                            ),
+                            datasets: [
+                                {
+                                    label: "Scores",
+                                    data: scores,
+                                    backgroundColor: "rgba(75, 192, 192, 0.2)",
+                                    borderColor: "rgba(75, 192, 192, 1)",
+                                    borderWidth: 1,
+                                },
+                            ],
+                        },
+                        options: {
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 10,
+                                },
+                            },
+                        },
+                    });
+                }
+
+                if (histogramChart) {
+                    histogramChart.data.labels = getHistogramLabels(scores);
+                    histogramChart.data.datasets[0].data =
+                        getHistogramData(scores);
+                    histogramChart.update();
+                } else {
+                    histogramChart = new Chart(ctxHist, {
+                        type: "bar",
+                        data: {
+                            labels: getHistogramLabels(scores),
+                            datasets: [
+                                {
+                                    label: "Score Distribution",
+                                    data: getHistogramData(scores),
+                                    backgroundColor: "rgba(153, 102, 255, 0.2)",
+                                    borderColor: "rgba(153, 102, 255, 1)",
+                                    borderWidth: 1,
+                                },
+                            ],
+                        },
+                        options: {
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                },
+                            },
+                        },
+                    });
+                }
+            }
+
+            function getHistogramLabels(scores) {
+                const bins = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+                return bins.map((bin) => `${bin} - ${bin + 1}`);
+            }
+
+            function getHistogramData(scores) {
+                const bins = Array(11).fill(0);
+                scores.forEach((score) => {
+                    const index = Math.floor(score);
+                    bins[index]++;
+                });
+                return bins;
+            }
+        </script>
+    </body>
+</html>
